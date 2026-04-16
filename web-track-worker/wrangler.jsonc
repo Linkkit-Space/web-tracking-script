@@ -28,12 +28,12 @@
 	"kv_namespaces": [
 		{
 			"binding": "SITE_SETTINGS",
-			"id": "39b8558983604367b5a3ba3ee5344a6c",
+			"id": "2d74d481e41349fcb3bb645360594523",
 			"remote": true
 		},
 		{
 			"binding": "PLANS",
-			"id": "3ca8c26a45114824bcded48ea32afec2",
+			"id": "8486d21f673440e9838f878a8da26e6c",
 			"remote": true
 		}
 	],
