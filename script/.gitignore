@@ -1,0 +1,4 @@
+node_modules/
+.yarn/install-state.gz
+index.min.js
+index.min.js.map
