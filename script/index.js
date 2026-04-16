@@ -13,110 +13,103 @@
   };
   var maxScrollDepth = 0;
 
+  // --- Time tracking (tab-visibility aware) ---
+  var pageStartTime = performance.now();
+  var hiddenAt = null;        // when the tab was hidden
+  var totalHiddenTime = 0;    // accumulated hidden ms for the current page
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) {
+      hiddenAt = performance.now();
+    } else {
+      if (hiddenAt !== null) {
+        totalHiddenTime += performance.now() - hiddenAt;
+        hiddenAt = null;
+      }
+    }
+  });
+
+  // Returns active seconds spent on the current page, excluding hidden time.
+  function getActiveTimeSpent() {
+    var now = performance.now();
+    var currentHidden = hiddenAt !== null ? now - hiddenAt : 0;
+    var active = now - pageStartTime - totalHiddenTime - currentHidden;
+    return Math.max(0, active / 1000);
+  }
+
+  // Call after recording time for a page to reset for the next page.
+  function resetPageTimer() {
+    pageStartTime = performance.now();
+    totalHiddenTime = 0;
+    hiddenAt = document.hidden ? performance.now() : null;
+  }
+  // --- end time tracking ---
+
   var trackFileExtensions = [
-    "pdf",
-    "xlsx",
-    "docx",
-    "txt",
-    "rtf",
-    "csv",
-    "exe",
-    "key",
-    "pps",
-    "ppt",
-    "pptx",
-    "7z",
-    "pkg",
-    "rar",
-    "gz",
-    "zip",
-    "avi",
-    "mov",
-    "mp4",
-    "mpeg",
-    "wmv",
-    "midi",
-    "mp3",
-    "wav",
-    "wma",
-    "dmg",
+    "pdf", "xlsx", "docx", "txt", "rtf", "csv", "exe", "key",
+    "pps", "ppt", "pptx", "7z", "pkg", "rar", "gz", "zip",
+    "avi", "mov", "mp4", "mpeg", "wmv", "midi", "mp3", "wav", "wma", "dmg",
   ];
 
   function handleFormSubmit() {
     const getFormName = (form) => {
-      if (form.getAttribute('id')) return form.getAttribute('id')
-      else if (form.getAttribute('name')) return form.getAttribute('name')
-      else return `Form on ${window.location.pathname}`
-    }
-    // Remove old handlers
+      if (form.getAttribute("id")) return form.getAttribute("id");
+      else if (form.getAttribute("name")) return form.getAttribute("name");
+      else return `Form on ${window.location.pathname}`;
+    };
     attachedHandlers.forms.forEach(({ element, handler }) => {
-      element.removeEventListener('submit', handler)
-    })
-    attachedHandlers.forms = []
-    document.querySelectorAll('form').forEach((form) => {
-      const handler = function (event) {
-        const form_name = getFormName(form)
-        events.push([
-          'form_submit',
-          {
-            ...pageInfo,
-            form_name,
-          },
-        ])
-      }
-      form.addEventListener('submit', handler)
-      attachedHandlers.forms.push({ element: form, handler })
-    })
+      element.removeEventListener("submit", handler);
+    });
+    attachedHandlers.forms = [];
+    document.querySelectorAll("form").forEach((form) => {
+      const handler = function () {
+        const form_name = getFormName(form);
+        events.push(["form_submit", { ...pageInfo, form_name }]);
+      };
+      form.addEventListener("submit", handler);
+      attachedHandlers.forms.push({ element: form, handler });
+    });
   }
 
   function isTrackingEnabled() {
     const { hostname, pathname } = window.location;
-    return (
-      pathname && hostname && siteId && !excludeDomains?.includes(hostname)
-    );
+    return pathname && hostname && siteId && !excludeDomains?.includes(hostname);
   }
 
   function sendAnalyticsBeacon(data) {
-    if (!isTrackingEnabled()) {
-      console.log("tracking not enabled")  
-      return
-    };
-    if (!data.events || data.events.length === 0) {
-      console.log("exiting prematurely , events empty")
-      return;
-    }
-    const events = data.events;
-    data.events = encodeURIComponent(JSON.stringify(events));
-
+    if (!isTrackingEnabled()) return;
+    if (!data.events || data.events.length === 0) return;
+    const evts = data.events;
+    data.events = encodeURIComponent(JSON.stringify(evts));
     data.cid = Math.floor(1e8 * Math.random()) + 1;
     data.sid = siteId;
     const searchParams = new URLSearchParams(data).toString();
-
     const url = "https://track.flooanalytics.com" + "?" + searchParams;
-
     navigator.sendBeacon(url);
   }
 
   window.addEventListener("scroll", updateScrollDepth);
 
-  if (void 0 !== history) {
+  // Build initial pageInfo immediately (works for both SPA and traditional sites).
+  function buildPageInfo() {
     const searchParams = new URLSearchParams(window.location.search);
-    const searchParamsObj = Object.fromEntries(searchParams);
-    pageInfo = {
+    return {
       host: window.location.hostname,
       path: window.location.pathname,
       ...(document.referrer && { referer: document.referrer }),
-      ...searchParamsObj,
+      ...Object.fromEntries(searchParams),
     };
+  }
+
+  pageInfo = buildPageInfo();
+
+  if (typeof history !== "undefined") {
     historyBasedTracking();
   } else {
-    console.warn(
-      "History API not supported. Tracking may not work as expected."
-    );
+    console.warn("History API not supported. Tracking may not work as expected.");
   }
 
   function handleExternalLink() {
-    // Remove old handlers
     attachedHandlers.links.forEach(({ element, handler }) => {
       element.removeEventListener("click", handler);
     });
@@ -124,36 +117,20 @@
 
     document.querySelectorAll("a").forEach((link) => {
       const handler = function (event) {
-        const linkUrl = new URL(
-          link.getAttribute("href"),
-          window.location.href
-        );
-        const currentHostname = window.location.hostname;
-        if (!linkUrl) return;
-
-        // ignore file downloads
-        const fileExtension = linkUrl.pathname.split(".").pop().toLowerCase();
-        if (trackFileExtensions.includes(fileExtension)) {
+        const href = link.getAttribute("href");
+        if (!href) return;
+        let linkUrl;
+        try {
+          linkUrl = new URL(href, window.location.href);
+        } catch {
           return;
         }
-        // track only external links
-        if (
-          linkUrl.hostname !== currentHostname &&
-          link.href !== undefined &&
-          link.href !== "undefined"
-        ) {
+        const fileExtension = linkUrl.pathname.split(".").pop().toLowerCase();
+        if (trackFileExtensions.includes(fileExtension)) return;
+        if (linkUrl.hostname !== window.location.hostname) {
           event.preventDefault();
           external = linkUrl;
-          events.push([
-            "external_link",
-            {
-              external_link: external,
-            },
-          ]);
-
-          // window.location.href = link.href
-
-          // Check if link should open in a new tab
+          events.push(["external_link", { external_link: external }]);
           if (link.target === "_blank") {
             window.open(link.href, "_blank");
           } else {
@@ -167,7 +144,6 @@
   }
 
   function handleCustomEventElements() {
-    // Remove old handlers
     if (attachedHandlers.custom) {
       attachedHandlers.custom.forEach(({ element, handler }) => {
         element.removeEventListener("click", handler);
@@ -175,41 +151,22 @@
     }
     attachedHandlers.custom = [];
 
-    // Match all elements that have floo-event-name=
     document.querySelectorAll("[class*='floo-event-name=']").forEach((el) => {
-      // Extract event name (e.g. floo-event-name=Signup+Pro)
       const match = el.className.match(/floo-event-name=([^\s]+)/);
-      const eventName = match
-        ? decodeURIComponent(match[1].replace(/\+/g, " "))
-        : null;
-
-
+      const eventName = match ? decodeURIComponent(match[1].replace(/\+/g, " ")) : null;
       if (!eventName) return;
 
-      const handler = (event) => {
-        // Optional: capture useful props
+      const handler = () => {
         const props = {
           text: el.innerText || el.value || null,
           tag: el.tagName.toLowerCase(),
           url: el.href || window.location.href,
         };
-
-        events.push([
-          eventName,
-          {
-            ...pageInfo,
-            ...props,
-            timestamp: Date.now(),
-          },
-        ]);
-
-        // Send beacon immediately for custom events
+        events.push([eventName, { ...pageInfo, ...props, timestamp: Date.now() }]);
         setTimeout(() => {
-          sendAnalyticsBeacon({ events: events.slice() })
+          sendAnalyticsBeacon({ events: events.slice() });
           events.length = 0;
         }, 0);
-
-
       };
 
       el.addEventListener("click", handler);
@@ -220,113 +177,109 @@
   function initializeScrollDepth() {
     const { scrollHeight } = document.documentElement;
     const viewportHeight = window.innerHeight;
-
     maxScrollDepth = Math.min((viewportHeight / scrollHeight) * 100, 100);
   }
+
   function updateScrollDepth() {
     const { scrollHeight } = document.documentElement;
     const viewportHeight = window.innerHeight;
-
     const currentScrollDepth =
       scrollHeight === 0
         ? null
         : scrollHeight <= viewportHeight
-          ? 100 // Non-scrollable or fully visible page
-          : (Math.min(window.scrollY + viewportHeight, scrollHeight) /
-            scrollHeight) *
-          100;
-    maxScrollDepth = Math.min(
-      Math.max(maxScrollDepth, currentScrollDepth),
-      100
-    );
+          ? 100
+          : (Math.min(window.scrollY + viewportHeight, scrollHeight) / scrollHeight) * 100;
+    maxScrollDepth = Math.min(Math.max(maxScrollDepth, currentScrollDepth), 100);
   }
+
+  // Guards against browsers that fire popstate on initial page load.
+  var isFirstLoad = true;
 
   function historyBasedTracking() {
-    if (history) {
-      handleExternalLink();
-      handleFormSubmit()
-      handleCustomEventElements();
+    if (!history) return;
+
+    handleExternalLink();
+    handleFormSubmit();
+    handleCustomEventElements();
+    initializeScrollDepth();
+
+    const originalPushState = history.pushState;
+    history.pushState = function (...args) {
+      const result = originalPushState.apply(history, args);
+      window.dispatchEvent(new Event("pushstate"));
+      window.dispatchEvent(new Event("location-change"));
+      return result;
+    };
+
+    window.addEventListener("popstate", () => {
+      // Some browsers fire popstate on the initial page load — ignore it.
+      if (isFirstLoad) {
+        isFirstLoad = false;
+        return;
+      }
+      window.dispatchEvent(new Event("location-change"));
+    });
+
+    window.addEventListener("location-change", () => {
+      isFirstLoad = false;
+      const timeSpent = getActiveTimeSpent();
+      resetPageTimer();
+
+      // Record page_view for the page the user is LEAVING.
+      events.push([
+        "page_view",
+        {
+          ...pageInfo,
+          scroll_depth: maxScrollDepth,
+          timestamp: Date.now(),
+          time_spent: timeSpent,
+          viewport_height: document.documentElement.scrollHeight,
+          viewport_width: document.documentElement.clientWidth,
+        },
+      ]);
+      const eventsCopy = events.slice();
+      events.length = 0;
+      setTimeout(() => sendAnalyticsBeacon({ events: eventsCopy }), 0);
+
       initializeScrollDepth();
-      const originalPushState = history.pushState;
-      history.pushState = function (...args) {
-        const result = originalPushState.apply(history, args);
-        window.dispatchEvent(new Event("pushstate"));
-        window.dispatchEvent(new Event("location-change"));
-        return result;
-      };
+      // Update pageInfo to the new page.
+      pageInfo = buildPageInfo();
 
-      window.addEventListener("popstate", () => {
-        window.dispatchEvent(new Event("location-change"));
-      });
-
-      window.addEventListener("location-change", () => {
-        const navigationTiming = performance.getEntriesByType("navigation")[0];
-        const timeSpent =
-          (performance.now() - navigationTiming.domContentLoadedEventEnd) /
-          1000;
-
-        const searchParams = new URLSearchParams(window.location.search);
-        const searchParamsObj = Object.fromEntries(searchParams);
-        events.push([
-          "page_view",
-          {
-            ...pageInfo,
-            scroll_depth: maxScrollDepth,
-            timestamp: Date.now(),
-            time_spent: timeSpent ?? 0,
-            viewport_height: document.documentElement.scrollHeight,
-            viewport_width: document.documentElement.clientWidth,
-          },
-        ]);
-        const eventsCopy = events.slice();
-        events.length = 0;
-        setTimeout(() => sendAnalyticsBeacon({ events: eventsCopy }), 0);
-        initializeScrollDepth();
-        pageInfo = {
-          host: window.location.hostname,
-          path: window.location.pathname,
-          ...(document.referrer && { referer: document.referrer }),
-          ...searchParamsObj,
-        };
-      });
-    }
+      // Re-attach handlers so new DOM elements on the new route are covered.
+      handleExternalLink();
+      handleFormSubmit();
+      handleCustomEventElements();
+    });
   }
+
+  // DOMContentLoaded: re-attach handlers and refresh pageInfo for traditional sites.
+  // For SPAs this is a no-op since historyBasedTracking already handled it.
   if (document.readyState !== "loading") {
     handleExternalLink();
-    handleFormSubmit()
+    handleFormSubmit();
     handleCustomEventElements();
   }
 
   document.addEventListener("DOMContentLoaded", function () {
-    let searchParams = new URLSearchParams(window.location.search);
-    let searchParamsObj = Object.fromEntries(searchParams);
-
     handleExternalLink();
-    handleFormSubmit()
+    handleFormSubmit();
     handleCustomEventElements();
-
-    pageInfo = {
-      host: window.location.hostname,
-      path: window.location.pathname,
-      ...(document.referrer && { referer: document.referrer }),
-      ...searchParamsObj,
-    };
+    pageInfo = buildPageInfo();
   });
 
+  // Fires when the user leaves the page (traditional navigation or tab close).
+  // Also fires on SPA page unload for the last page in the session.
   window.addEventListener("beforeunload", function () {
-    const navigationTiming = performance.getEntriesByType("navigation")[0];
-    const timeSpent =
-      (performance.now() - navigationTiming.domContentLoadedEventEnd) / 1000;
+    const timeSpent = getActiveTimeSpent();
     events.push([
       "page_view",
       {
         ...pageInfo,
         scroll_depth: maxScrollDepth,
         timestamp: Date.now(),
-        time_spent: timeSpent ?? 0,
+        time_spent: timeSpent,
       },
     ]);
-    setTimeout(() => sendAnalyticsBeacon({ events: events.slice() }), 0);
-    // events.length = 0;
+    sendAnalyticsBeacon({ events: events.slice() });
   });
 })();
