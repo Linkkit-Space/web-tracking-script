@@ -97,7 +97,7 @@
       host: window.location.hostname,
       path: window.location.pathname,
       ...(document.referrer && { referer: document.referrer }),
-      ...Object.fromEntries(searchParams),
+      ...Object.fromEntries([...searchParams].filter(([k]) => k !== 'host' && k !== 'path' && k !== 'referer')),
     };
   }
 
@@ -130,7 +130,7 @@
         if (linkUrl.hostname !== window.location.hostname) {
           event.preventDefault();
           external = linkUrl;
-          events.push(["external_link", { external_link: external }]);
+          events.push(["external_link", { ...pageInfo, external_link: external.href }]);
           if (link.target === "_blank") {
             window.open(link.href, "_blank");
           } else {
@@ -233,8 +233,8 @@
           scroll_depth: maxScrollDepth,
           timestamp: Date.now(),
           time_spent: timeSpent,
-          viewport_height: document.documentElement.scrollHeight,
-          viewport_width: document.documentElement.clientWidth,
+          viewport_height: window.innerHeight,
+          viewport_width: window.innerWidth,
         },
       ]);
       const eventsCopy = events.slice();
@@ -278,6 +278,8 @@
         scroll_depth: maxScrollDepth,
         timestamp: Date.now(),
         time_spent: timeSpent,
+        viewport_height: window.innerHeight,
+        viewport_width: window.innerWidth,
       },
     ]);
     sendAnalyticsBeacon({ events: events.slice() });
