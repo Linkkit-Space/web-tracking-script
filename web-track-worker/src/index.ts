@@ -107,6 +107,19 @@ function isIpBlocked(settings: Record<string, unknown>, ip: string): boolean {
 	return blockedIps.includes(ip);
 }
 
+function isHostnameAllowed(settings: Record<string, unknown>, host: string): boolean {
+	const allowed = normalizeIpList(settings.allowed_hostNames ?? settings.allowedHostNames);
+	if (allowed.length === 0) return true; // no rules = allow all
+	if (!host) return false;
+	return allowed.some((pattern) => {
+		if (pattern.startsWith('*.')) {
+			const base = pattern.slice(2); // "uselinkkit.com"
+			return host === base || host.endsWith('.' + base);
+		}
+		return host === pattern;
+	});
+}
+
 async function addData(
 	request: Request,
 	env: Env,
@@ -294,6 +307,10 @@ export default {
 		const settingsKey = `site:settings:${site_id}`;
 		const siteSettings = parseJsonObject(await env.SITE_SETTINGS.get(settingsKey));
 		if (isIpBlocked(siteSettings, cfIp)) {
+			return new Response('OK', { status: 200 });
+		}
+		const requestHost: string = events.length > 0 ? ((events[0][1] as any).host ?? '') : '';
+		if (!isHostnameAllowed(siteSettings, requestHost)) {
 			return new Response('OK', { status: 200 });
 		}
 		const acceptLang = request.headers.get('Accept-Language') ?? '';
