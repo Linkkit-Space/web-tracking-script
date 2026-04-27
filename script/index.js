@@ -92,12 +92,19 @@
 
   // Build initial pageInfo immediately (works for both SPA and traditional sites).
   function buildPageInfo() {
+    var customProps = {};
+    try {
+      var p = window._floo_props;
+      if (p && typeof p === 'object' && !Array.isArray(p)) customProps = p;
+    } catch (e) {}
+
     const searchParams = new URLSearchParams(window.location.search);
     return {
       host: window.location.hostname,
       path: window.location.pathname,
       ...(document.referrer && { referer: document.referrer }),
       ...Object.fromEntries([...searchParams].filter(([k]) => k !== 'host' && k !== 'path' && k !== 'referer')),
+      ...customProps,
     };
   }
 
