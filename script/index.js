@@ -64,7 +64,7 @@
     document.querySelectorAll("form").forEach((form) => {
       const handler = function () {
         const form_name = getFormName(form);
-        events.push(["form_submit", { ...pageInfo, form_name }]);
+        events.push(["form_submit", { ...getEventPageInfo(), form_name }]);
       };
       form.addEventListener("submit", handler);
       attachedHandlers.forms.push({ element: form, handler });
@@ -90,21 +90,31 @@
 
   window.addEventListener("scroll", updateScrollDepth);
 
-  // Build initial pageInfo immediately (works for both SPA and traditional sites).
-  function buildPageInfo() {
+  function getCustomProps() {
     var customProps = {};
     try {
       var p = window._floo_props;
       if (p && typeof p === 'object' && !Array.isArray(p)) customProps = p;
     } catch (e) {}
+    return customProps;
+  }
 
+  // Build initial pageInfo immediately (works for both SPA and traditional sites).
+  function buildPageInfo() {
     const searchParams = new URLSearchParams(window.location.search);
     return {
       host: window.location.hostname,
       path: window.location.pathname,
       ...(document.referrer && { referer: document.referrer }),
       ...Object.fromEntries([...searchParams].filter(([k]) => k !== 'host' && k !== 'path' && k !== 'referer')),
-      ...customProps,
+      ...getCustomProps(),
+    };
+  }
+
+  function getEventPageInfo() {
+    return {
+      ...pageInfo,
+      ...getCustomProps(),
     };
   }
 
@@ -137,7 +147,7 @@
         if (linkUrl.hostname !== window.location.hostname) {
           event.preventDefault();
           external = linkUrl;
-          events.push(["external_link", { ...pageInfo, external_link: external.href }]);
+          events.push(["external_link", { ...getEventPageInfo(), external_link: external.href }]);
           if (link.target === "_blank") {
             window.open(link.href, "_blank");
           } else {
@@ -169,7 +179,7 @@
           tag: el.tagName.toLowerCase(),
           url: el.href || window.location.href,
         };
-        events.push([eventName, { ...pageInfo, ...props, timestamp: Date.now() }]);
+        events.push([eventName, { ...getEventPageInfo(), ...props, timestamp: Date.now() }]);
         setTimeout(() => {
           sendAnalyticsBeacon({ events: events.slice() });
           events.length = 0;
@@ -236,7 +246,7 @@
       events.push([
         "page_view",
         {
-          ...pageInfo,
+          ...getEventPageInfo(),
           scroll_depth: maxScrollDepth,
           timestamp: Date.now(),
           time_spent: timeSpent,
@@ -281,7 +291,7 @@
     events.push([
       "page_view",
       {
-        ...pageInfo,
+        ...getEventPageInfo(),
         scroll_depth: maxScrollDepth,
         timestamp: Date.now(),
         time_spent: timeSpent,
