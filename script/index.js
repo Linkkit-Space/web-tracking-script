@@ -61,14 +61,16 @@
       element.removeEventListener("submit", handler);
     });
     attachedHandlers.forms = [];
-    document.querySelectorAll("form").forEach((form) => {
-      const handler = function () {
-        const form_name = getFormName(form);
-        events.push(["form_submit", { ...getEventPageInfo(), form_name }]);
-      };
-      form.addEventListener("submit", handler);
-      attachedHandlers.forms.push({ element: form, handler });
-    });
+    // Use event delegation so React/SPA-rendered forms are captured regardless
+    // of when they mount relative to route-change handling.
+    const handler = function (event) {
+      const form = event.target.closest("form");
+      if (!form) return;
+      const form_name = getFormName(form);
+      events.push(["form_submit", { ...getEventPageInfo(), form_name }]);
+    };
+    document.addEventListener("submit", handler);
+    attachedHandlers.forms.push({ element: document, handler });
   }
 
   function isTrackingEnabled() {
