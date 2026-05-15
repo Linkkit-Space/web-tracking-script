@@ -90,7 +90,11 @@ function parseJsonObject(raw: string | null): Record<string, unknown> {
 function normalizeIpList(value: unknown): string[] {
 	if (!value) return [];
 	if (Array.isArray(value)) {
-		return value.filter((item) => typeof item === 'string').map((item) => item.trim()).filter(Boolean);
+		return value
+			.map((item) => (typeof item === 'string' ? item : typeof item === 'object' && item !== null ? (item as Record<string, unknown>).ip : null))
+			.filter((item): item is string => typeof item === 'string')
+			.map((item) => item.trim())
+			.filter(Boolean);
 	}
 	if (typeof value === 'string') {
 		return value
